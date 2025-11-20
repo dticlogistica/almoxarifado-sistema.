@@ -1,0 +1,4 @@
+/* Os estilos são gerenciados pelo Tailwind CDN */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
