@@ -15,21 +15,39 @@ class InventoryService {
   private async fetchAllData() {
     if (this.dataLoaded && this.cachedUsers.length > 0) return;
 
-    if (API_URL.includes('COLE_SUA_URL_AQUI')) {
+    if (!API_URL || API_URL.includes('COLE_SUA_URL_AQUI')) {
       console.warn("API URL not configured");
       return;
     }
 
     try {
-      const response = await fetch(`${API_URL}?action=getAll`);
-      const data = await response.json();
+      // Adiciona timestamp para evitar cache do navegador
+      const response = await fetch(`${API_URL}?action=getAll&t=${Date.now()}`);
       
-      this.cachedUsers = data.users.map((u: any) => ({
+      if (!response.ok) {
+        throw new Error(`Erro HTTP: ${response.status}`);
+      }
+
+      const text = await response.text();
+      let data;
+      
+      try {
+        data = JSON.parse(text);
+      } catch (e) {
+        console.error("A resposta do servidor não é um JSON válido:", text.substring(0, 200) + "...");
+        throw new Error("O servidor retornou HTML em vez de JSON. Verifique as permissões do Script (Deve ser 'Qualquer pessoa').");
+      }
+      
+      if (data.error) {
+        throw new Error(data.error);
+      }
+
+      this.cachedUsers = (data.users || []).map((u: any) => ({
         ...u,
         active: u.active === true || u.active === "TRUE"
       }));
       
-      this.cachedProducts = data.products.map((p: any) => ({
+      this.cachedProducts = (data.products || []).map((p: any) => ({
         ...p,
         currentBalance: Number(p.currentBalance),
         unitValue: Number(p.unitValue),
@@ -37,34 +55,44 @@ class InventoryService {
         minStock: Number(p.minStock)
       }));
 
-      this.cachedMovements = data.movements.map((m: any) => ({
+      this.cachedMovements = (data.movements || []).map((m: any) => ({
         ...m,
         quantity: Number(m.quantity),
         value: Number(m.value),
         isReversed: m.isReversed === true || m.isReversed === "TRUE"
       }));
 
-      this.cachedNes = data.nes;
+      this.cachedNes = data.nes || [];
       this.dataLoaded = true;
     } catch (error) {
-      console.error("Error fetching data from Google Sheets:", error);
-      alert("Erro ao conectar com a planilha. Verifique a URL no arquivo config.ts e o console.");
+      console.error("Erro detalhado no fetchAllData:", error);
+      // Não usar alert aqui para não travar a UI em loop, apenas logar
+      console.warn("Falha na conexão com a planilha. Verifique o console.");
     }
   }
 
   private async postData(action: string, payload: any): Promise<boolean> {
     try {
-      // We use 'no-cors' limitation in some envs, but for GAS Web App returning JSON, standard fetch works 
-      // if the GAS script has correct CORS headers (ContentService handles this mostly).
-      // However, standard fetch POST to GAS often requires 'application/x-www-form-urlencoded' or simple text 
-      // to avoid preflight checks if CORS is strict, but here we just send JSON string.
-      
+      // IMPORTANTE: Usar 'text/plain' no Content-Type evita que o navegador envie uma requisição OPTIONS (Preflight)
+      // que o Google Apps Script não suporta, causando erro de CORS.
       const response = await fetch(API_URL, {
         method: 'POST',
+        headers: {
+          'Content-Type': 'text/plain;charset=utf-8',
+        },
         body: JSON.stringify({ action, payload })
       });
       
-      const result = await response.json();
+      const text = await response.text();
+      let result;
+      
+      try {
+        result = JSON.parse(text);
+      } catch (e) {
+        console.error("Erro ao parsear resposta do POST:", text);
+        return false;
+      }
+
       if (result.success) {
         // Invalidate cache to force reload on next get
         this.dataLoaded = false; 
