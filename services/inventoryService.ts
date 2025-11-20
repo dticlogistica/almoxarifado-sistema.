@@ -1,6 +1,6 @@
 
 import { Product, NotaEmpenho, Movement, MovementType, DashboardStats, NEStatus, User, UserRole } from '../types';
-import { API_URL } from './config';
+import { API_URL as DEFAULT_API_URL } from './config';
 
 class InventoryService {
   private cachedUsers: User[] = [];
@@ -12,20 +12,30 @@ class InventoryService {
 
   // --- API HELPERS ---
 
+  // Helper para pegar a URL correta (prioriza a salva no navegador)
+  public getApiUrl(): string {
+    const stored = localStorage.getItem('almoxarifado_api_url');
+    if (stored && stored.trim().startsWith('http')) {
+      return stored.trim();
+    }
+    return DEFAULT_API_URL;
+  }
+
   private async fetchAllData() {
     if (this.dataLoaded && this.cachedUsers.length > 0) return;
 
-    if (!API_URL || API_URL.includes('COLE_SUA_URL_AQUI')) {
+    const url = this.getApiUrl();
+    
+    if (!url || url.includes('COLE_SUA_URL_AQUI')) {
       console.warn("API URL not configured");
       return;
     }
 
     try {
-      // credentials: 'omit' é CRUCIAL para evitar erros de CORS com Google Apps Script
-      const response = await fetch(`${API_URL}?action=getAll&t=${Date.now()}`, {
+      const response = await fetch(`${url}?action=getAll&t=${Date.now()}`, {
         method: 'GET',
         redirect: 'follow',
-        credentials: 'omit' 
+        credentials: 'omit'
       });
       
       if (!response.ok) {
@@ -38,7 +48,7 @@ class InventoryService {
       try {
         data = JSON.parse(text);
       } catch (e) {
-        console.error("A resposta do servidor não é um JSON válido. Recebido:", text.substring(0, 200));
+        console.error("JSON Parse Error:", text.substring(0, 200));
         if (text.trim().toLowerCase().startsWith("<!doctype html") || text.includes("<html")) {
              throw new Error("ERRO DE PERMISSÃO: O Google retornou uma página de login. Verifique se a Implantação do Web App está como 'Qualquer pessoa' (Anyone).");
         }
@@ -81,7 +91,8 @@ class InventoryService {
     try {
       console.log(`Iniciando envio: ${action}`, payload);
 
-      const targetUrl = `${API_URL}?action=${action}`;
+      const url = this.getApiUrl();
+      const targetUrl = `${url}?action=${action}`;
 
       const response = await fetch(targetUrl, {
         method: 'POST',
@@ -128,14 +139,15 @@ class InventoryService {
   // Método público para teste de conexão
   async testConnection(): Promise<{ success: boolean; message: string }> {
       try {
-          if (!API_URL) return { success: false, message: "URL da API não configurada." };
+          const url = this.getApiUrl();
+          if (!url || url.includes('COLE_SUA_URL_AQUI')) return { success: false, message: "URL da API não configurada." };
           
           const start = Date.now();
-          // Adicionado credentials: 'omit' para evitar bloqueio do navegador
-          const response = await fetch(`${API_URL}?action=getAll&t=${start}`, {
+          
+          const response = await fetch(`${url}?action=getAll&t=${start}`, {
             method: 'GET',
             redirect: 'follow',
-            credentials: 'omit' 
+            credentials: 'omit'
           });
           
           if (!response.ok) {
