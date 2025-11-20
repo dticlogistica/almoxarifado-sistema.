@@ -35,7 +35,10 @@ class InventoryService {
         data = JSON.parse(text);
       } catch (e) {
         console.error("A resposta do servidor não é um JSON válido. Recebido:", text.substring(0, 200));
-        throw new Error("O servidor retornou HTML em vez de JSON. Verifique se a implantação do Script está como 'Qualquer pessoa' (Anyone).");
+        if (text.trim().toLowerCase().startsWith("<!doctype html") || text.includes("<html")) {
+             throw new Error("ERRO DE PERMISSÃO: O Google retornou uma página de login. Verifique se a Implantação do Web App está como 'Qualquer pessoa' (Anyone).");
+        }
+        throw new Error("O servidor retornou dados inválidos.");
       }
       
       if (data.error) {
@@ -74,33 +77,33 @@ class InventoryService {
     try {
       console.log(`Iniciando envio: ${action}`, payload);
 
-      // Adicionamos a action também na URL para garantir que o roteador do GAS pegue
-      // mesmo que falhe ao ler o body inicialmente.
       const targetUrl = `${API_URL}?action=${action}`;
 
       const response = await fetch(targetUrl, {
         method: 'POST',
         headers: {
-          // 'text/plain' é crucial para evitar preflight OPTIONS CORS que o GAS não suporta
           'Content-Type': 'text/plain;charset=utf-8',
         },
         body: JSON.stringify({ action, payload })
       });
       
       const text = await response.text();
-      console.log("Resposta do servidor (Raw):", text.substring(0, 500)); // Log para debug
+      console.log("Resposta do servidor (Raw):", text.substring(0, 500));
 
       let result;
       try {
         result = JSON.parse(text);
       } catch (e) {
-        console.error("Erro ao processar resposta JSON. O servidor pode ter retornado um erro HTML.", text);
-        alert("Erro de comunicação: O servidor não retornou um JSON válido. Verifique o console.");
+        console.error("Erro de Parse JSON. Resposta recebida:", text);
+        if (text.includes("<html") || text.includes("<!DOCTYPE")) {
+             alert("ERRO DE PERMISSÃO: O sistema não conseguiu salvar pois o Google pediu login. \n\nSOLUÇÃO: No Apps Script, clique em Implantar > Nova Implantação, e em 'Quem pode acessar', selecione 'Qualquer pessoa'.");
+        } else {
+             alert("Erro de comunicação: O servidor retornou uma resposta inválida. Verifique o console (F12).");
+        }
         return false;
       }
 
       if (result.success) {
-        // Invalidate cache to force reload on next get
         this.dataLoaded = false; 
         console.log("Operação realizada com sucesso!");
         return true;
@@ -116,32 +119,56 @@ class InventoryService {
     }
   }
 
+  // Método público para teste de conexão
+  async testConnection(): Promise<{ success: boolean; message: string }> {
+      try {
+          if (!API_URL) return { success: false, message: "URL da API não configurada." };
+          
+          const start = Date.now();
+          const response = await fetch(`${API_URL}?action=getAll&t=${start}`);
+          const text = await response.text();
+          
+          if (text.includes("<html")) {
+              return { success: false, message: "ERRO DE PERMISSÃO: O Google retornou HTML (Login). Mude a permissão do script para 'Qualquer pessoa'." };
+          }
+
+          try {
+              const json = JSON.parse(text);
+              if (json.users) {
+                  return { success: true, message: `Conectado! Ping: ${Date.now() - start}ms. Usuários carregados: ${json.users.length}` };
+              } else {
+                  return { success: false, message: "Conectado, mas o formato do JSON parece incorreto." };
+              }
+          } catch {
+               return { success: false, message: "Erro ao ler JSON. O servidor respondeu, mas não com dados válidos." };
+          }
+
+      } catch (e: any) {
+          return { success: false, message: `Erro de rede: ${e.message}` };
+      }
+  }
+
   // --- USER MANAGEMENT ---
 
   async getCurrentUser(): Promise<User> {
     await this.fetchAllData();
     
-    // Try to get from localStorage
     const storedEmail = localStorage.getItem('almoxarifado_user');
     if (storedEmail) {
       const found = this.cachedUsers.find(u => u.email === storedEmail && u.active);
       if (found) return found;
     }
 
-    // Fallback: return first Admin or first user
     const admin = this.cachedUsers.find(u => u.role === UserRole.ADMIN && u.active);
     if (admin) {
       this.setCurrentUser(admin);
       return admin;
     }
 
-    // Fallback absolute (if sheet is empty)
     return { email: 'admin@temp.com', name: 'Admin Temporário', role: UserRole.ADMIN, active: true };
   }
 
   async switchUser(index: number): Promise<User> {
-    // This method is used by the UI "Switch User" button (Demo style)
-    // We will map the index to the list of available users
     await this.fetchAllData();
     if (this.cachedUsers.length === 0) return this.getCurrentUser();
 
@@ -150,7 +177,6 @@ class InventoryService {
     return user;
   }
 
-  // Helper to persist session
   private setCurrentUser(user: User) {
     localStorage.setItem('almoxarifado_user', user.email);
   }
@@ -167,7 +193,6 @@ class InventoryService {
   }
 
   async deleteUser(email: string): Promise<boolean> {
-    // In our logic, delete is just set active=false, handled by saveUser in UI
     return true; 
   }
 
@@ -183,22 +208,20 @@ class InventoryService {
     const totalValue = this.cachedProducts.reduce((acc, p) => acc + (p.currentBalance * p.unitValue), 0);
     const lowStock = this.cachedProducts.filter(p => p.currentBalance <= p.minStock).length;
     
-    // Calculate monthly outflow from movements
     const monthlyData = new Map<string, number>();
-    const now = new Date();
     
     this.cachedMovements
       .filter(m => m.type === MovementType.EXIT && !m.isReversed)
       .forEach(m => {
         const date = new Date(m.date);
-        const key = date.toLocaleString('pt-BR', { month: 'short' }); // Jan, Fev...
+        const key = date.toLocaleString('pt-BR', { month: 'short' });
         monthlyData.set(key, (monthlyData.get(key) || 0) + m.value);
       });
 
     const monthlyOutflow = Array.from(monthlyData.entries()).map(([month, value]) => ({ month, value }));
 
     const topProducts = this.cachedProducts
-      .map(p => ({ name: p.name, value: p.initialQty - p.currentBalance })) // Simplistic consumption metric
+      .map(p => ({ name: p.name, value: p.initialQty - p.currentBalance }))
       .sort((a, b) => b.value - a.value)
       .slice(0, 5);
 
@@ -262,7 +285,6 @@ class InventoryService {
   async executeDistribution(movementsAllocated: { productId: string; neId: string; qty: number; unitValue: number }[], userEmail: string, obs: string): Promise<boolean> {
     const timestamp = new Date().toISOString();
     
-    // Prepare movements objects for the backend
     const movementsData = movementsAllocated.map(m => {
       const product = this.cachedProducts.find(p => p.id === m.productId);
       return {
@@ -285,7 +307,6 @@ class InventoryService {
   }
 
   async reverseMovement(movementId: string, userEmail: string): Promise<boolean> {
-    // Find original movement to get details
     const movement = this.cachedMovements.find(m => m.id === movementId);
     if (!movement) return false;
 
@@ -310,7 +331,6 @@ class InventoryService {
   async createNotaEmpenho(neData: { number: string, supplier: string, date: string }, items: any[]): Promise<boolean> {
     const timestamp = new Date().toISOString();
 
-    // 1. Prepare NE Object
     const totalValue = items.reduce((acc, item) => acc + (item.initialQty * item.unitValue), 0);
     const newNE: NotaEmpenho = {
       id: neData.number,
@@ -320,7 +340,6 @@ class InventoryService {
       totalValue: totalValue
     };
 
-    // 2. Prepare Products and Movements
     const productsPayload: Product[] = [];
     const movementsPayload: Movement[] = [];
 
@@ -350,7 +369,7 @@ class InventoryService {
         productName: item.name,
         quantity: item.initialQty,
         value: item.initialQty * item.unitValue,
-        userEmail: 'admin@sys.com', // Ideally current user
+        userEmail: 'admin@sys.com',
         observation: 'Entrada Inicial de Nota de Empenho',
         isReversed: false
       };

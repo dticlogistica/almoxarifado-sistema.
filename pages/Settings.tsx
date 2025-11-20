@@ -2,7 +2,7 @@
 import React, { useEffect, useState } from 'react';
 import { inventoryService } from '../services/inventoryService';
 import { User, UserRole } from '../types';
-import { Users, UserPlus, Shield, Edit, Trash2, Check, X, HelpCircle, Globe, Github, Server } from 'lucide-react';
+import { Users, UserPlus, Shield, Edit, Trash2, Check, X, HelpCircle, Globe, Github, Server, Activity } from 'lucide-react';
 
 const Settings: React.FC = () => {
   const [users, setUsers] = useState<User[]>([]);
@@ -12,6 +12,10 @@ const Settings: React.FC = () => {
   // Modals State
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
   const [isDeployModalOpen, setIsDeployModalOpen] = useState(false);
+  
+  // Connection Test State
+  const [connectionStatus, setConnectionStatus] = useState<{ success: boolean; message: string } | null>(null);
+  const [testingConnection, setTestingConnection] = useState(false);
   
   // Form State
   const [editingUser, setEditingUser] = useState<User | null>(null);
@@ -78,6 +82,14 @@ const Settings: React.FC = () => {
     setLoading(false);
   };
 
+  const handleTestConnection = async () => {
+    setTestingConnection(true);
+    setConnectionStatus(null);
+    const result = await inventoryService.testConnection();
+    setConnectionStatus(result);
+    setTestingConnection(false);
+  };
+
   const RoleBadge = ({ role }: { role: UserRole }) => {
     switch (role) {
       case UserRole.ADMIN:
@@ -100,12 +112,35 @@ const Settings: React.FC = () => {
           </h2>
           <p className="text-slate-500 mt-2">Gerenciamento de usuários e sistema.</p>
         </div>
-        <button 
-          onClick={() => setIsDeployModalOpen(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-white text-slate-600 border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors font-medium shadow-sm"
-        >
-          <HelpCircle size={18} /> Como Publicar?
-        </button>
+        <div className="flex gap-2">
+          <button 
+            onClick={() => setIsDeployModalOpen(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-white text-slate-600 border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors font-medium shadow-sm"
+          >
+            <HelpCircle size={18} /> Como Publicar?
+          </button>
+        </div>
+      </div>
+
+      {/* Painel de Diagnóstico de Conexão */}
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+         <h3 className="font-bold text-lg text-slate-700 flex items-center gap-2 mb-4">
+            <Activity size={20} /> Status da Conexão com Google Sheets
+         </h3>
+         <div className="flex items-center gap-4">
+             <button 
+               onClick={handleTestConnection}
+               disabled={testingConnection}
+               className="px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700 disabled:opacity-50"
+             >
+               {testingConnection ? 'Testando...' : 'Testar Conexão Agora'}
+             </button>
+             {connectionStatus && (
+               <div className={`px-4 py-2 rounded-lg border text-sm flex-1 ${connectionStatus.success ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-red-50 border-red-200 text-red-700'}`}>
+                 <strong>{connectionStatus.success ? 'Sucesso:' : 'Falha:'}</strong> {connectionStatus.message}
+               </div>
+             )}
+         </div>
       </div>
 
       <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
