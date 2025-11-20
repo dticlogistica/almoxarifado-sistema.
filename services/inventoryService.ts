@@ -34,8 +34,8 @@ class InventoryService {
       try {
         data = JSON.parse(text);
       } catch (e) {
-        console.error("A resposta do servidor não é um JSON válido:", text.substring(0, 200) + "...");
-        throw new Error("O servidor retornou HTML em vez de JSON. Verifique as permissões do Script (Deve ser 'Qualquer pessoa').");
+        console.error("A resposta do servidor não é um JSON válido. Recebido:", text.substring(0, 200));
+        throw new Error("O servidor retornou HTML em vez de JSON. Verifique se a implantação do Script está como 'Qualquer pessoa' (Anyone).");
       }
       
       if (data.error) {
@@ -66,43 +66,52 @@ class InventoryService {
       this.dataLoaded = true;
     } catch (error) {
       console.error("Erro detalhado no fetchAllData:", error);
-      // Não usar alert aqui para não travar a UI em loop, apenas logar
       console.warn("Falha na conexão com a planilha. Verifique o console.");
     }
   }
 
   private async postData(action: string, payload: any): Promise<boolean> {
     try {
-      // IMPORTANTE: Usar 'text/plain' no Content-Type evita que o navegador envie uma requisição OPTIONS (Preflight)
-      // que o Google Apps Script não suporta, causando erro de CORS.
-      const response = await fetch(API_URL, {
+      console.log(`Iniciando envio: ${action}`, payload);
+
+      // Adicionamos a action também na URL para garantir que o roteador do GAS pegue
+      // mesmo que falhe ao ler o body inicialmente.
+      const targetUrl = `${API_URL}?action=${action}`;
+
+      const response = await fetch(targetUrl, {
         method: 'POST',
         headers: {
+          // 'text/plain' é crucial para evitar preflight OPTIONS CORS que o GAS não suporta
           'Content-Type': 'text/plain;charset=utf-8',
         },
         body: JSON.stringify({ action, payload })
       });
       
       const text = await response.text();
+      console.log("Resposta do servidor (Raw):", text.substring(0, 500)); // Log para debug
+
       let result;
-      
       try {
         result = JSON.parse(text);
       } catch (e) {
-        console.error("Erro ao parsear resposta do POST:", text);
+        console.error("Erro ao processar resposta JSON. O servidor pode ter retornado um erro HTML.", text);
+        alert("Erro de comunicação: O servidor não retornou um JSON válido. Verifique o console.");
         return false;
       }
 
       if (result.success) {
         // Invalidate cache to force reload on next get
         this.dataLoaded = false; 
+        console.log("Operação realizada com sucesso!");
         return true;
       } else {
-        console.error("API Error:", result.error);
+        console.error("API Error (Lógica):", result.error);
+        alert(`Erro do Sistema: ${result.error}`);
         return false;
       }
     } catch (error) {
-      console.error("Network Error:", error);
+      console.error("Network Error (Catch):", error);
+      alert("Erro de rede ao tentar salvar. Verifique sua conexão.");
       return false;
     }
   }
