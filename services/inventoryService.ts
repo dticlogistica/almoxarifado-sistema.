@@ -21,8 +21,12 @@ class InventoryService {
     }
 
     try {
-      // Adiciona timestamp para evitar cache do navegador
-      const response = await fetch(`${API_URL}?action=getAll&t=${Date.now()}`);
+      // credentials: 'omit' é CRUCIAL para evitar erros de CORS com Google Apps Script
+      const response = await fetch(`${API_URL}?action=getAll&t=${Date.now()}`, {
+        method: 'GET',
+        redirect: 'follow',
+        credentials: 'omit' 
+      });
       
       if (!response.ok) {
         throw new Error(`Erro HTTP: ${response.status}`);
@@ -81,6 +85,8 @@ class InventoryService {
 
       const response = await fetch(targetUrl, {
         method: 'POST',
+        redirect: 'follow',
+        credentials: 'omit',
         headers: {
           'Content-Type': 'text/plain;charset=utf-8',
         },
@@ -125,7 +131,17 @@ class InventoryService {
           if (!API_URL) return { success: false, message: "URL da API não configurada." };
           
           const start = Date.now();
-          const response = await fetch(`${API_URL}?action=getAll&t=${start}`);
+          // Adicionado credentials: 'omit' para evitar bloqueio do navegador
+          const response = await fetch(`${API_URL}?action=getAll&t=${start}`, {
+            method: 'GET',
+            redirect: 'follow',
+            credentials: 'omit' 
+          });
+          
+          if (!response.ok) {
+            return { success: false, message: `Erro HTTP: ${response.status} ${response.statusText}` };
+          }
+
           const text = await response.text();
           
           if (text.includes("<html")) {
@@ -144,7 +160,8 @@ class InventoryService {
           }
 
       } catch (e: any) {
-          return { success: false, message: `Erro de rede: ${e.message}` };
+          console.error("Erro no Test Connection:", e);
+          return { success: false, message: `Erro de rede: ${e.message || 'Failed to fetch'}` };
       }
   }
 
